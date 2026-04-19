@@ -1,0 +1,205 @@
+\documentclass[10pt,twocolumn]{article}
+
+% ---------- Packages ----------
+\usepackage[margin=0.7in]{geometry}
+\usepackage{times}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{courier}
+
+\setlength{\columnsep}{0.25in}
+\setlength{\parskip}{2pt}
+\setlength{\parindent}{0pt}
+
+% compact section spacing
+\titlespacing*{\section}{0pt}{4pt}{2pt}
+\titlespacing*{\subsection}{0pt}{3pt}{1pt}
+
+\begin{document}
+
+% ---------- Title ----------
+\begin{center}
+{\large \textbf{Project 2 Part A: Genetic Algorithm Design for Job Scheduling}}\\
+\vspace{2pt}
+\textbf{Group 15}\\
+Aliyeh Haghollahi, Tapajit Chandra Paul.
+\end{center}
+
+\vspace{-6pt}
+
+% =====================================================
+\section{Problem Representation and Definitions}
+
+The objective is to minimize the \textbf{makespan}, defined as the total time required to complete all jobs. A Genetic Algorithm (GA) is used, where each chromosome represents a valid job schedule (a permutation).
+
+\textbf{Chromosome definition:}
+
+A chromosome is a permutation of all job IDs (each job appears exactly once):
+{\small\ttfamily
+C = [J3, J1, J5, J2, J4]
+}
+
+\textbf{Definitions:}
+\begin{itemize}[leftmargin=10pt]
+\item $J$ = number of jobs
+\item $M$ = number of machines
+\item $N$ = number of operations per job
+\item $\texttt{Time}[j][k]$ = processing time of job ID $j$ at operation $k$ (for $j\in\{1,\dots,J\}$, $k\in\{1,\dots,N\}$)
+\end{itemize}
+
+\textbf{Machine assignment rule (round-robin):}
+{\small\ttfamily
+machine(k) = ((k - 1) mod M) + 1
+}
+
+\textbf{Operation precedence constraint:}
+Operation $k$ of job $j$ cannot start until operation $k-1$ of the same job finishes.
+
+\textbf{Team contributions:}
+Aliyeh Haghollahi: designed R2 makespan/fitness pseudocode and validated constraints.\\
+Tapajit Chandra Paul: designed R1 two-cut crossover pseudocode and permutation validity checks.
+
+\vspace{-6pt}
+
+% =====================================================
+\section{R1: Crossover Operation (Two-Cut Interval Crossover)}
+
+The crossover operator creates two children from two parent chromosomes using two cut points and a hole mechanism to avoid duplicate jobs, while preserving relative order from the other parent.
+\\\textbf{Input assumptions:}
+P1 and P2 are valid chromosomes (permutations) containing each job ID exactly once, with job IDs in the range 1..J.
+The procedure must produce two valid children that also contain each job exactly once.
+
+\subsection*{Pseudo Code (Permutation-Safe, Two Children)}
+
+{\small\ttfamily
+PROCEDURE Crossover(P1, P2)\\
+\hspace*{5pt}J $\leftarrow$ length(P1)\\
+\\
+\hspace*{5pt}\# Step 1: choose two distinct cut points\\
+\hspace*{5pt}cut1 $\leftarrow$ RANDOM(1, J)\\
+\hspace*{5pt}REPEAT cut2 $\leftarrow$ RANDOM(1, J) UNTIL cut2 $\neq$ cut1\\
+\hspace*{5pt}IF cut1 $>$ cut2 THEN SWAP(cut1, cut2) END IF\\
+\\
+\hspace*{5pt}\# Helper: BuildChild(KeepParent, FillParent)\\
+\hspace*{5pt}PROCEDURE BuildChild(KP, FP)\\
+\hspace*{10pt}Child $\leftarrow$ EMPTY array size J\\
+\hspace*{10pt}\# Copy middle segment from KP\\
+\hspace*{10pt}FOR i = cut1 TO cut2 DO\\
+\hspace*{15pt}Child[i] $\leftarrow$ KP[i]\\
+\hspace*{10pt}END FOR\\
+\\
+\hspace*{10pt}\# Mark holes in FP for items already used in Child[cut1..cut2]\\
+\hspace*{10pt}FPholes $\leftarrow$ copy of FP\\
+\hspace*{10pt}FOR i = 1 TO J DO\\
+\hspace*{15pt}IF FPholes[i] exists in KP[cut1..cut2] THEN\\
+\hspace*{20pt}FPholes[i] $\leftarrow$ H\\
+\hspace*{15pt}END IF\\
+\hspace*{10pt}END FOR\\
+\\
+\hspace*{10pt}\# Fill remaining slots by scanning FP left-to-right (ignoring holes)\\
+\hspace*{10pt}pos $\leftarrow$ 1\\
+\hspace*{10pt}FOR i = 1 TO J DO\\
+\hspace*{15pt}IF FPholes[i] $\neq$ H THEN\\
+\hspace*{20pt}\# find next empty position outside the cut segment\\
+\hspace*{20pt}WHILE Child[pos] $\neq$ EMPTY DO\\
+\hspace*{25pt}pos $\leftarrow$ pos + 1\\
+\hspace*{20pt}END WHILE\\
+\hspace*{20pt}IF pos $>$ J THEN BREAK END IF\\
+\hspace*{20pt}Child[pos] $\leftarrow$ FPholes[i]\\
+\hspace*{15pt}END IF\\
+\hspace*{10pt}END FOR\\
+\\
+\hspace*{10pt}RETURN Child\\
+\hspace*{5pt}END PROCEDURE\\
+\\
+\hspace*{5pt}\# Step 2: build both children\\
+\hspace*{5pt}Child1 $\leftarrow$ BuildChild(P1, P2)\\
+\hspace*{5pt}Child2 $\leftarrow$ BuildChild(P2, P1)\\
+\\
+\hspace*{5pt}RETURN Child1, Child2\\
+END PROCEDURE
+}
+
+
+
+\vspace{-6pt}
+
+% =====================================================
+\section{R2: Makespan and Fitness Computation}
+
+The makespan is computed by simulating the schedule: each job's operations are executed in order, and each operation must wait for both (1) its assigned machine to be free and (2) the previous operation of that job to finish.
+\\\textbf{Input assumptions:}
+C is a valid chromosome (permutation of job IDs 1..J). The matrix Time[j][k] is defined for every job j and operation k, and all processing times are known in advance.
+\subsection*{Pseudo Code (Generic for Any $J, M, N$)}
+
+{\small\ttfamily
+PROCEDURE ComputeMakespan(C, Time, M, N)\\
+\\
+\hspace*{5pt}J $\leftarrow$ length(C)\\
+\\
+\hspace*{5pt}\# machine availability times\\
+\hspace*{5pt}FOR m = 1 TO M DO\\
+\hspace*{10pt}machineFree[m] $\leftarrow$ 0\\
+\hspace*{5pt}END FOR\\
+\\
+\hspace*{5pt}\# job readiness times (indexed by job ID: 1..J)\\
+\hspace*{5pt}FOR jobId = 1 TO J DO\\
+\hspace*{10pt}jobReady[jobId] $\leftarrow$ 0\\
+\hspace*{5pt}END FOR\\
+\\
+\hspace*{5pt}makespan $\leftarrow$ 0\\
+\\
+\hspace*{5pt}\# schedule jobs in chromosome order\\
+\hspace*{5pt}FOR idx = 1 TO J DO\\
+\hspace*{10pt}jobId $\leftarrow$ C[idx]\\
+\\
+\hspace*{10pt}FOR k = 1 TO N DO\\
+\hspace*{15pt}\# round-robin machine assignment for operation k\\
+\hspace*{15pt}m $\leftarrow$ ((k - 1) mod M) + 1\\
+\\
+\hspace*{15pt}\# operation waits for machine and previous op of same job\\
+\hspace*{15pt}start $\leftarrow$ MAX(machineFree[m], jobReady[jobId])\\
+\hspace*{15pt}finish $\leftarrow$ start + Time[jobId][k]\\
+\\
+\hspace*{15pt}machineFree[m] $\leftarrow$ finish\\
+\hspace*{15pt}jobReady[jobId] $\leftarrow$ finish\\
+\\
+\hspace*{15pt}IF finish $>$ makespan THEN makespan $\leftarrow$ finish END IF\\
+\hspace*{10pt}END FOR\\
+\hspace*{5pt}END FOR\\
+\\
+\hspace*{5pt}RETURN makespan\\
+END PROCEDURE
+}
+
+\vspace{2pt}
+
+\subsection*{Fitness Function}
+
+{\small\ttfamily
+PROCEDURE ComputeFitness(C, Time, M, N)\\
+\hspace*{5pt}ms $\leftarrow$ ComputeMakespan(C, Time, M, N)\\
+\hspace*{5pt}\# smaller makespan => larger fitness\\
+\hspace*{5pt}fitness $\leftarrow$ 1 / ms\\
+\hspace*{5pt}RETURN fitness\\
+END PROCEDURE
+}
+
+
+
+\vspace{-6pt}
+
+% =====================================================
+\section{Notes}
+
+This design satisfies the project constraints:
+\begin{itemize}[leftmargin=10pt]
+\item Machines never execute more than one operation at a time (enforced by \texttt{machineFree}).
+\item Job operation precedence is preserved (enforced by \texttt{jobReady}).
+\item Crossover produces valid permutations (no duplicates due to the hole mechanism).
+\item Makespan correctly measures the overall completion time across all machines and jobs.
+\item The pseudocode is fully generic and works for any number of jobs, machines, and operations.
+\end{itemize}
+
+\end{document}
